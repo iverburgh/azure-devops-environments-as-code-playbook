@@ -17,7 +17,10 @@ function Get-SchemaProblem {
     $schema = Get-Content -LiteralPath $SchemaPath -Raw
     $schemaErrors = $null
     if (-not (Test-Json -Json $Json -Schema $schema -ErrorVariable schemaErrors -ErrorAction SilentlyContinue)) {
-        foreach ($schemaError in @($schemaErrors)) { "schema: $($schemaError.Exception.Message)" }
+        $messages = @(foreach ($schemaError in @($schemaErrors)) { if ($schemaError) { "schema: $($schemaError.Exception.Message)" } })
+        # Some PowerShell versions (7.6.8, 7.6.9) return false without reporting violations inside a $ref.
+        if ($messages.Count -eq 0) { $messages = @('schema: the JSON does not match the schema (Test-Json reported no details).') }
+        foreach ($message in $messages) { $message }
     }
 }
 
