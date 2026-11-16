@@ -1,0 +1,6 @@
+*.log
+TestResults/
+exported/
+
+# Organisation-specific names for the leak check. Never commit this file: listing the names would publish them.
+tools/forbidden-terms.local.txt

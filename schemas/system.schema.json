@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system.schema.json",
+  "title": "Components of a system and what may happen to each environment as a whole",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["system", "environments", "components"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "system": {
+      "description": "Same prefix as in environments/*.json.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._]*[A-Za-z0-9]$"
+    },
+    "defaultBranch": {
+      "description": "Branch deploy-all runs from when a component does not set its own.",
+      "type": "string",
+      "pattern": "^refs/heads/[^,\\s]+$"
+    },
+    "environments": {
+      "description": "One entry per environment group. Every group needs an environments/<group>.json.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/environmentPolicy" }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "cleanup": { "$ref": "#/$defs/cleanup" }
+  },
+  "$defs": {
+    "environmentPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subscriptionId"],
+      "properties": {
+        "subscriptionId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "protected": {
+          "description": "Never removed, whatever else this file says. Use it for production and anything people depend on.",
+          "type": "boolean"
+        },
+        "deployAll": { "description": "Deploy-all may roll out this environment.", "type": "boolean" },
+        "redeploy": { "description": "Redeploy may re-run the last good versions in this environment.", "type": "boolean" },
+        "remove": { "description": "Remove may tear this environment down.", "type": "boolean" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "pipeline", "resourceGroup"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "pipeline": {
+          "description": "Name of the Azure DevOps pipeline that deploys this component. It takes a parameter 'environment'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "description": "Branch deploy-all runs from; defaults to defaultBranch.",
+          "type": "string",
+          "pattern": "^refs/heads/[^,\\s]+$"
+        },
+        "environmentSuffix": {
+          "description": "The component deploys to '<system> - <group> - <suffix>' instead of '<system> - <group>'.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 _]*$"
+        },
+        "resourceGroup": {
+          "description": "Resource group the component owns. '{env}' is replaced by the environment group. Remove deletes it.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._()-]*\\{env\\}[A-Za-z0-9._()-]*$"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "cleanup": {
+      "description": "Removal of orphaned role assignments: assignments whose principal no longer exists.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourceGroupPattern"],
+      "properties": {
+        "resourceGroupPattern": {
+          "description": "Wildcard pattern of the resource groups to scan; '{env}' is replaced by the environment group.",
+          "type": "string",
+          "pattern": "\\{env\\}"
+        },
+        "protectedRoleNames": {
+          "description": "Never deleted, even when orphaned. Review those by hand.",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "minimumAgeDays": {
+          "description": "Only assignments older than this are candidates; directory replication can briefly hide a new principal.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxOrphanRatio": {
+          "description": "Circuit breaker: refuse when more than this share of the assignments looks orphaned. That smells like a lookup problem, not like orphans.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "minimumAssignmentsForRatioCheck": {
+          "description": "Below this many assignments the ratio is meaningless and not checked.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

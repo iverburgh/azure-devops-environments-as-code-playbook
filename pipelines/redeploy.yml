@@ -1,0 +1,51 @@
+# Redeploy: deploys every component of one environment again, at the exact commit that last
+# deployed successfully to it, in dependency order.
+#
+# Use it to rebuild an environment after it was removed or damaged, or to undo configuration drift
+# in the resources, without picking up whatever is on main today. Invoke-Rollout.ps1 -Mode Redeploy
+# reads the deployment history of each Azure DevOps environment, finds the last successful run of each
+# component pipeline, and queues that pipeline again with the same branch and commit.
+# It refuses to start when a component has never deployed successfully: use deploy all first.
+#
+# The schedule rebuilds dev every Saturday morning (after remove.yml has torn it down, if you
+# schedule that too). Scheduled runs use the default parameter values.
+#
+# Permissions: as deploy-all.yml, plus read access to the environments (deployment history).
+
+trigger: none
+pr: none
+
+schedules:
+  - cron: '0 3 * * 6'
+    displayName: Weekly rebuild of dev
+    branches:
+      include: [main]
+    always: true
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    default: dev
+    values: [dev, test, acc]
+  - name: whatIf
+    displayName: Only show the plan (queue nothing)
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: Redeploy
+    displayName: Redeploy ${{ parameters.environment }}
+    timeoutInMinutes: 360
+    steps:
+      - checkout: self
+
+      - pwsh: |
+          $whatIf = [bool]::Parse('${{ parameters.whatIf }}')
+          ./scripts/Invoke-Rollout.ps1 -Environment '${{ parameters.environment }}' -Mode Redeploy -WhatIf:$whatIf -TimeoutMinutes 330
+        displayName: Queue the last good version of every component, wave by wave
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)

@@ -1,0 +1,48 @@
+# Deploy all: rolls out every component of one environment, in dependency order.
+#
+# Invoke-Rollout.ps1 reads orchestration/system.json, computes the waves (network; then monitoring,
+# messaging and data; then gateway and payments-fn; then orders-api and web-ui) and queues the
+# component pipelines wave by wave with templateParameters.environment = <env>. It waits for every
+# run of a wave and stops at the first failure. The component pipelines deploy in their own
+# deployment jobs, so the checks of every environment still apply: orchestration never bypasses a gate.
+#
+# Production is not offered here, and system.json has "deployAll": false for prod, which the script
+# enforces as well. See docs/four-eyes-and-approvals.md for why.
+#
+# Permissions: the job access token is used to queue the component pipelines. The build service
+# identity of the project needs "Queue builds" on them and read access to the pipelines and
+# environments; see docs/running-in-a-pipeline.md.
+
+trigger: none
+pr: none
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    values: [dev, test, acc]
+  - name: whatIf
+    displayName: Only show the plan (queue nothing)
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: DeployAll
+    displayName: Deploy all to ${{ parameters.environment }}
+    # Waits for every wave, including approvals on acc; give it room.
+    timeoutInMinutes: 360
+    steps:
+      - checkout: self
+
+      - pwsh: ./scripts/Get-OrchestrationPlan.ps1 -Action DeployAll -Environment '${{ parameters.environment }}'
+        displayName: Plan
+
+      - pwsh: |
+          $whatIf = [bool]::Parse('${{ parameters.whatIf }}')
+          ./scripts/Invoke-Rollout.ps1 -Environment '${{ parameters.environment }}' -Mode DeployAll -WhatIf:$whatIf -TimeoutMinutes 330
+        displayName: Queue the component pipelines wave by wave
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)

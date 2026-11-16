@@ -1,0 +1,45 @@
+# Component pipeline of the databases. Register it as 'shop-data'.
+#
+# It deploys to the '- Data' variant of each environment ('shop - prod - Data' and so on). That
+# variant has its own checks: in production two approvals, one of them by a database administrator,
+# while application releases only need one. Same structure as orders-api.yml otherwise.
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [database/*]
+
+pr: none
+
+parameters:
+  - name: environment
+    displayName: Environment (all = dev, test, acc, prod in order)
+    type: string
+    default: all
+    values: [all, dev, test, acc, prod]
+  - name: environments
+    type: object
+    default: [dev, test, acc, prod]
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        steps:
+          - checkout: self
+          - publish: $(Build.SourcesDirectory)/database
+            artifact: drop
+
+  - ${{ each env in parameters.environments }}:
+      - ${{ if or(eq(parameters.environment, 'all'), eq(parameters.environment, env)) }}:
+          - template: ../templates/deploy-component.yml
+            parameters:
+              component: data
+              environment: ${{ env }}
+              environmentSuffix: Data
+              resourceGroup: rg-shop-${{ env }}-data
+              serviceConnection: sc-shop-${{ env }}

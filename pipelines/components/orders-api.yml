@@ -1,0 +1,48 @@
+# Component pipeline of orders-api. Register it in Azure DevOps under the name 'shop-orders-api':
+# orchestration/system.json refers to pipelines by name.
+#
+#   - A push to main builds once and deploys dev -> test -> acc -> prod. Each stage waits for the
+#     previous one (stages without dependsOn depend on the stage above them) and for the checks of
+#     its environment: prod waits for an approval by someone other than the person who pushed.
+#   - deploy all and redeploy queue this pipeline with templateParameters.environment = <env>, which
+#     builds and deploys to that one environment only. Redeploy also pins the commit.
+
+trigger:
+  branches:
+    include: [main]
+
+pr: none
+
+parameters:
+  - name: environment
+    displayName: Environment (all = dev, test, acc, prod in order)
+    type: string
+    default: all
+    values: [all, dev, test, acc, prod]
+
+  # Fixed deployment order. Not meant to be changed when queuing a run.
+  - name: environments
+    type: object
+    default: [dev, test, acc, prod]
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        steps:
+          - checkout: self
+          # Placeholder build: publish the infrastructure template as the artifact.
+          - publish: $(Build.SourcesDirectory)/infra
+            artifact: drop
+
+  - ${{ each env in parameters.environments }}:
+      - ${{ if or(eq(parameters.environment, 'all'), eq(parameters.environment, env)) }}:
+          - template: ../templates/deploy-component.yml
+            parameters:
+              component: orders-api
+              environment: ${{ env }}
+              resourceGroup: rg-shop-${{ env }}-orders
+              serviceConnection: sc-shop-${{ env }}

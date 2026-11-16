@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "environments.schema.json",
+  "title": "Azure DevOps environments and their checks (one file per environment group)",
+  "description": "A group is one stage of the system, such as dev or prod, with its base environment '<system> - <group>' and suffixed variants '<system> - <group> - <suffix>'. Every check that is absent or disabled must not exist on the environment; checks of other types are left alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["system", "group", "environments"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "system": {
+      "description": "Prefix of every environment name, for example 'shop'.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._]*[A-Za-z0-9]$"
+    },
+    "group": {
+      "description": "Environment group, for example 'dev' or 'prod'. No hyphens: ' - ' separates the parts of a name.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_]*$"
+    },
+    "policy": {
+      "description": "Rules every environment of this group must follow, unless the environment has a policyExemption.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requireFourEyes": {
+          "description": "Every environment needs an approval check in which the person who started the run cannot approve it.",
+          "type": "boolean"
+        },
+        "requireBranchControl": {
+          "description": "Every environment needs a branch control check.",
+          "type": "boolean"
+        },
+        "requireExclusiveLock": {
+          "description": "Every environment needs an exclusive lock.",
+          "type": "boolean"
+        }
+      }
+    },
+    "security": {
+      "description": "Applied once, when Set-Environments.ps1 creates an environment. Role drift on existing environments is not detected.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "administrators": {
+          "description": "Groups or users that get the Administrator role on a new environment, for example '[shop]\\Release Administrators'.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "removeCreatorRole": {
+          "description": "Remove the Administrator role Azure DevOps gives the identity that created the environment.",
+          "type": "boolean"
+        }
+      }
+    },
+    "environments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/environment" }
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "'<system> - <group>' or '<system> - <group> - <suffix>'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "Managed only when present.",
+          "type": "string"
+        },
+        "policyExemption": {
+          "description": "Why this environment does not follow the group policy. Required to deviate; reviewed like code.",
+          "type": "string",
+          "minLength": 10
+        },
+        "exclusiveLock": { "$ref": "#/$defs/exclusiveLock" },
+        "branchControl": { "$ref": "#/$defs/branchControl" },
+        "approval": { "$ref": "#/$defs/approval" }
+      }
+    },
+    "exclusiveLock": {
+      "description": "Only one run at a time may use the environment; later runs wait.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "timeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 43200 }
+      }
+    },
+    "branchControl": {
+      "description": "Only runs from these branches may use the environment.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "allowedBranches": {
+          "description": "Full refs such as 'refs/heads/main', wildcards such as 'refs/heads/release/*', or '*'. The API stores them as one comma-separated string.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(\\*|refs/(heads|tags)/[^,\\s]+)$" },
+          "uniqueItems": true
+        },
+        "verifyBranchProtection": {
+          "description": "Also require that the branch has a branch policy.",
+          "type": "boolean"
+        },
+        "timeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 43200 }
+      }
+    },
+    "approval": {
+      "description": "Manual approval before a run may use the environment.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "approvers": {
+          "description": "Users (e-mail address) or groups ('[project]\\Group name'), resolved to identities at run time.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "minRequiredApprovers": {
+          "description": "How many approvers must approve. 1 for 'any one of'.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "requesterCannotBeApprover": {
+          "description": "The four-eyes principle: whoever started the run cannot approve it.",
+          "type": "boolean"
+        },
+        "executionOrder": {
+          "description": "anyOrder or inSequence (approvers approve in the listed order).",
+          "type": "string",
+          "enum": ["anyOrder", "inSequence"]
+        },
+        "instructions": { "type": "string" },
+        "timeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 43200 }
+      }
+    }
+  }
+}

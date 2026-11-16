@@ -1,0 +1,33 @@
+{
+  "$schema": "../schemas/environments.schema.json",
+  "system": "shop",
+  "group": "dev",
+  "security": {
+    "administrators": ["[shop]\\Release Administrators"],
+    "removeCreatorRole": true
+  },
+  "environments": [
+    {
+      "name": "shop - dev",
+      "description": "Development: rebuilt every week by the redeploy schedule.",
+      "exclusiveLock": { "enabled": true }
+    },
+    {
+      "name": "shop - dev - Data",
+      "description": "Development databases.",
+      "exclusiveLock": { "enabled": true }
+    },
+    {
+      "name": "shop - dev - RemoveAll",
+      "description": "Gate for tearing down the whole dev environment.",
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Platform Team"],
+        "minRequiredApprovers": 1,
+        "requesterCannotBeApprover": true,
+        "instructions": "Approve only when nobody is testing in dev. Removal deletes every resource group of the environment.",
+        "timeoutMinutes": 1440
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+# Stage template: deploys one component to one environment in a deployment job.
+#
+# The deployment job is what binds a run to an Azure DevOps environment. Every check on that
+# environment (exclusive lock, branch control, approval) is evaluated before the job starts, and the
+# environment records the deployment - which is what Invoke-Rollout.ps1 -Mode Redeploy reads back.
+#
+# The deploy step itself is a placeholder (a Bicep deployment); replace it with your own.
+
+parameters:
+  - name: system
+    type: string
+    default: shop
+  - name: component
+    type: string
+  # Environment group: dev, test, acc or prod.
+  - name: environment
+    type: string
+  # Optional variant such as 'Data': binds to '<system> - <environment> - Data', which has its own checks.
+  - name: environmentSuffix
+    type: string
+    default: ''
+  - name: resourceGroup
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: artifact
+    type: string
+    default: drop
+
+stages:
+  - stage: Deploy_${{ parameters.environment }}
+    displayName: Deploy to ${{ parameters.environment }}
+    jobs:
+      - deployment: Deploy
+        displayName: ${{ parameters.component }} to ${{ parameters.environment }}
+        ${{ if eq(parameters.environmentSuffix, '') }}:
+          environment: ${{ parameters.system }} - ${{ parameters.environment }}
+        ${{ else }}:
+          environment: ${{ parameters.system }} - ${{ parameters.environment }} - ${{ parameters.environmentSuffix }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: ${{ parameters.artifact }}
+
+                - task: AzureCLI@2
+                  displayName: Deploy ${{ parameters.component }}
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az group create --name '${{ parameters.resourceGroup }}' --location westeurope --output none
+                      az deployment group create `
+                        --resource-group '${{ parameters.resourceGroup }}' `
+                        --template-file '$(Pipeline.Workspace)/${{ parameters.artifact }}/main.bicep' `
+                        --parameters environment='${{ parameters.environment }}' `
+                        --output none

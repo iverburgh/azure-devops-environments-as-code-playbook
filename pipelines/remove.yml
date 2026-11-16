@@ -1,0 +1,112 @@
+# Remove: tears down one environment (or some components and everything that depends on them).
+#
+# Safety, in layers:
+#   1. Only dev and test are offered. system.json must also say "remove": true and not "protected",
+#      and the script refuses production-like names, whatever this list says.
+#   2. The person who queues the run types the environment name; a mismatch fails in the Plan stage,
+#      before anyone is asked to approve.
+#   3. The Plan stage runs the removal with -WhatIf: it lists the resource groups in reverse
+#      dependency order and fails on any management lock.
+#   4. The Approve stage is a deployment job on '<system> - <env> - RemoveAll'. That environment has an
+#      Approval check with "requester cannot approve": a second person approves the teardown.
+#   5. Only then does the Remove stage delete, in reverse dependency order.
+#
+# The parameters reach the scripts through environment variables, never by pasting them into a
+# script, so a typed value cannot inject code.
+
+trigger: none
+pr: none
+
+parameters:
+  - name: environment
+    displayName: Environment to remove
+    type: string
+    values: [dev, test]
+  - name: confirmation
+    displayName: Type the environment name again to confirm
+    type: string
+  - name: components
+    displayName: Components (comma separated; 'all' = the whole environment)
+    type: string
+    default: all
+  - name: ignoreLocks
+    displayName: Delete even when a resource group has a management lock
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: serviceConnection
+    value: sc-shop-${{ parameters.environment }}
+
+stages:
+  - stage: Plan
+    jobs:
+      - job: Plan
+        steps:
+          - checkout: self
+
+          - pwsh: |
+              if ($env:CONFIRMATION -cne $env:TARGET) {
+                  Write-Host "##vso[task.logissue type=error]The confirmation does not match the environment name '$($env:TARGET)'."
+                  exit 1
+              }
+            displayName: Check the typed confirmation
+            env:
+              TARGET: ${{ parameters.environment }}
+              CONFIRMATION: ${{ parameters.confirmation }}
+
+          - task: AzureCLI@2
+            displayName: Plan the removal (WhatIf)
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $components = @(if ($env:COMPONENTS -ne 'all') { $env:COMPONENTS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } })
+                ./scripts/Remove-Environment.ps1 -Environment $env:TARGET -Components $components `
+                  -IgnoreLocks:([bool]::Parse($env:IGNORE_LOCKS)) -WhatIf
+            env:
+              TARGET: ${{ parameters.environment }}
+              COMPONENTS: ${{ parameters.components }}
+              IGNORE_LOCKS: ${{ parameters.ignoreLocks }}
+
+  - stage: Approve
+    dependsOn: Plan
+    jobs:
+      - deployment: Approve
+        displayName: Approve removing ${{ parameters.environment }}
+        environment: shop - ${{ parameters.environment }} - RemoveAll
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - pwsh: Write-Host 'Removal approved.'
+
+  - stage: Remove
+    dependsOn: Approve
+    jobs:
+      - job: Remove
+        timeoutInMinutes: 120
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Remove in reverse dependency order
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $components = @(if ($env:COMPONENTS -ne 'all') { $env:COMPONENTS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } })
+                # The typed confirmation and the approval are the guards here, so no interactive prompt.
+                ./scripts/Remove-Environment.ps1 -Environment $env:TARGET -Components $components `
+                  -Confirmation $env:CONFIRMATION -IgnoreLocks:([bool]::Parse($env:IGNORE_LOCKS)) -Confirm:$false
+            env:
+              TARGET: ${{ parameters.environment }}
+              CONFIRMATION: ${{ parameters.confirmation }}
+              COMPONENTS: ${{ parameters.components }}
+              IGNORE_LOCKS: ${{ parameters.ignoreLocks }}

@@ -1,0 +1,50 @@
+{
+  "$schema": "../schemas/system.schema.json",
+  "system": "shop",
+  "defaultBranch": "refs/heads/main",
+  "environments": {
+    "dev": {
+      "subscriptionId": "00000000-0000-0000-0000-000000000011",
+      "deployAll": true,
+      "redeploy": true,
+      "remove": true
+    },
+    "test": {
+      "subscriptionId": "00000000-0000-0000-0000-000000000012",
+      "deployAll": true,
+      "redeploy": true,
+      "remove": true
+    },
+    "acc": {
+      "subscriptionId": "00000000-0000-0000-0000-000000000013",
+      "protected": true,
+      "deployAll": true,
+      "redeploy": true,
+      "remove": false
+    },
+    "prod": {
+      "subscriptionId": "00000000-0000-0000-0000-000000000014",
+      "protected": true,
+      "deployAll": false,
+      "redeploy": false,
+      "remove": false
+    }
+  },
+  "components": [
+    { "name": "network", "pipeline": "shop-network", "resourceGroup": "rg-shop-{env}-network", "dependsOn": [] },
+    { "name": "monitoring", "pipeline": "shop-monitoring", "resourceGroup": "rg-shop-{env}-monitoring", "dependsOn": ["network"] },
+    { "name": "messaging", "pipeline": "shop-messaging", "resourceGroup": "rg-shop-{env}-messaging", "dependsOn": ["network"] },
+    { "name": "data", "pipeline": "shop-data", "environmentSuffix": "Data", "resourceGroup": "rg-shop-{env}-data", "dependsOn": ["network"] },
+    { "name": "gateway", "pipeline": "shop-gateway", "resourceGroup": "rg-shop-{env}-gateway", "dependsOn": ["messaging", "monitoring"] },
+    { "name": "orders-api", "pipeline": "shop-orders-api", "resourceGroup": "rg-shop-{env}-orders", "dependsOn": ["data", "messaging", "gateway"] },
+    { "name": "payments-fn", "pipeline": "shop-payments-fn", "resourceGroup": "rg-shop-{env}-payments", "dependsOn": ["data", "messaging"] },
+    { "name": "web-ui", "pipeline": "shop-web-ui", "resourceGroup": "rg-shop-{env}-web", "dependsOn": ["gateway"] }
+  ],
+  "cleanup": {
+    "resourceGroupPattern": "rg-shop-{env}-*",
+    "protectedRoleNames": ["Owner", "User Access Administrator"],
+    "minimumAgeDays": 7,
+    "maxOrphanRatio": 0.5,
+    "minimumAssignmentsForRatioCheck": 20
+  }
+}

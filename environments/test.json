@@ -1,0 +1,48 @@
+{
+  "$schema": "../schemas/environments.schema.json",
+  "system": "shop",
+  "group": "test",
+  "policy": {
+    "requireBranchControl": true
+  },
+  "security": {
+    "administrators": ["[shop]\\Release Administrators"],
+    "removeCreatorRole": true
+  },
+  "environments": [
+    {
+      "name": "shop - test",
+      "description": "Test: deployed from main and release branches.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main", "refs/heads/release/*"]
+      }
+    },
+    {
+      "name": "shop - test - Data",
+      "description": "Test databases.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main", "refs/heads/release/*"]
+      }
+    },
+    {
+      "name": "shop - test - RemoveAll",
+      "description": "Gate for tearing down the whole test environment.",
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main"]
+      },
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Platform Team"],
+        "minRequiredApprovers": 1,
+        "requesterCannotBeApprover": true,
+        "instructions": "Approve only when no test run is planned. Removal deletes every resource group of the environment.",
+        "timeoutMinutes": 1440
+      }
+    }
+  ]
+}

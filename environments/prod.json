@@ -1,0 +1,61 @@
+{
+  "$schema": "../schemas/environments.schema.json",
+  "system": "shop",
+  "group": "prod",
+  "policy": {
+    "requireFourEyes": true,
+    "requireBranchControl": true,
+    "requireExclusiveLock": true
+  },
+  "security": {
+    "administrators": ["[shop]\\Release Administrators"],
+    "removeCreatorRole": true
+  },
+  "environments": [
+    {
+      "name": "shop - prod",
+      "description": "Production. Every run needs an approval by someone other than the person who started it.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main"],
+        "verifyBranchProtection": true
+      },
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Production Approvers"],
+        "minRequiredApprovers": 1,
+        "requesterCannotBeApprover": true,
+        "instructions": "Check the change, the release notes and the acceptance result. You cannot approve a run you started yourself.",
+        "timeoutMinutes": 4320
+      }
+    },
+    {
+      "name": "shop - prod - Data",
+      "description": "Production databases: two approvals, one of them by a database administrator.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main"],
+        "verifyBranchProtection": true
+      },
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Production Approvers", "[shop]\\Database Administrators"],
+        "minRequiredApprovers": 2,
+        "requesterCannotBeApprover": true,
+        "instructions": "A database administrator reviews the migration script; a production approver reviews the release.",
+        "timeoutMinutes": 4320
+      }
+    },
+    {
+      "name": "shop - prod - Diagnostics",
+      "description": "Read-only health queries against production.",
+      "policyExemption": "Runs only read-only diagnostics with a reader service connection that has its own checks; a deployment here cannot change production.",
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main"]
+      }
+    }
+  ]
+}

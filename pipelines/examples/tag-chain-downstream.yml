@@ -1,0 +1,60 @@
+# The alternative "deploy all" pattern: a chain of pipelines linked by build tags and pipeline
+# resource triggers, instead of one orchestrator that queues runs (pipelines/deploy-all.yml).
+#
+# How the chain works:
+#   1. Someone queues the first pipeline (network) with a parameter that says "deploy all".
+#   2. When it succeeds, it tags its own run:  ##vso[build.addbuildtag]deploy-all-dev
+#   3. Every downstream pipeline declares the upstream pipelines as resources with a tag filter, so
+#      a tagged run triggers it. It deploys, then tags its own run, which triggers the next ones.
+#
+# Trade-offs compared with the orchestrator:
+#   + no long-running job that waits; no token that queues runs on behalf of someone else
+#   - the dependency graph is spread over every pipeline file instead of one system.json
+#   - a pipeline with two upstream resources is triggered by each of them (once per tag), not after
+#     both; you need a guard or accept double runs
+#   - "is the environment complete?" has no single place to look
+#
+# This file shows a downstream pipeline (gateway, which depends on messaging and monitoring).
+# UNVERIFIED: shown for comparison; the playbook's tests cover the orchestrator, not this chain.
+
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: messaging
+      source: shop-messaging
+      trigger:
+        tags: [deploy-all-dev]
+    - pipeline: monitoring
+      source: shop-monitoring
+      trigger:
+        tags: [deploy-all-dev]
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        steps:
+          - checkout: self
+          - publish: $(Build.SourcesDirectory)/infra
+            artifact: drop
+
+  - template: ../templates/deploy-component.yml
+    parameters:
+      component: gateway
+      environment: dev
+      resourceGroup: rg-shop-dev-gateway
+      serviceConnection: sc-shop-dev
+
+  - stage: Tag
+    dependsOn: Deploy_dev
+    jobs:
+      - job: Tag
+        steps:
+          - checkout: none
+          # Triggers the pipelines that depend on gateway (orders-api, web-ui).
+          - pwsh: Write-Host '##vso[build.addbuildtag]deploy-all-dev'

@@ -1,0 +1,84 @@
+# Environments as code: validates environments/*.json and applies it to Azure DevOps.
+#
+#   pull request  -> validate offline, then print the plan (-WhatIf): reviewers see what will change
+#   push to main  -> validate, then apply
+#   every night   -> drift check (-Check): fails when someone changed an environment by hand
+#
+# Credentials: the AzureCLI@2 tasks sign in with the service connection below. Its service principal
+# (or managed identity) must be a user in the Azure DevOps organisation with the Creator role on
+# environments and the Administrator role on the environments it manages; see
+# docs/running-in-a-pipeline.md. SYSTEM_ACCESSTOKEN is deliberately not mapped, so
+# lib/AzureDevOps.ps1 asks Entra ID for a token for that identity instead.
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [environments/*, schemas/*, lib/*, scripts/Set-Environments.ps1]
+
+pr:
+  branches:
+    include: [main]
+  paths:
+    include: [environments/*, schemas/*, lib/*, scripts/Set-Environments.ps1]
+
+schedules:
+  - cron: '0 5 * * *'
+    displayName: Nightly drift check
+    branches:
+      include: [main]
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: serviceConnection
+    value: sc-azure-devops-environments
+
+stages:
+  - stage: Validate
+    jobs:
+      - job: Validate
+        steps:
+          - checkout: self
+
+          - pwsh: ./scripts/Test-Configuration.ps1
+            displayName: Validate configuration (offline)
+
+          - task: AzureCLI@2
+            displayName: Plan (WhatIf)
+            condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: ./scripts/Set-Environments.ps1 -WhatIf
+
+          - task: AzureCLI@2
+            displayName: Drift check
+            condition: and(succeeded(), eq(variables['Build.Reason'], 'Schedule'))
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: ./scripts/Set-Environments.ps1 -Check
+
+  - stage: Apply
+    dependsOn: Validate
+    condition: >-
+      and(succeeded(),
+          eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+          in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI', 'Manual'))
+    jobs:
+      - job: Apply
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Apply environments and checks
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: ./scripts/Set-Environments.ps1

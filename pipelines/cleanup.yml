@@ -1,0 +1,103 @@
+# Cleanup: finds and deletes orphaned role assignments (assignments whose principal no longer exists)
+# in the resource groups of one environment.
+#
+#   Scan    dry run; writes orphans-<env>.csv and publishes it as an artifact. Always runs.
+#   Review  a person downloads the CSV, checks it and resumes the run (ManualValidation).
+#   Delete  deletes only the assignments in the reviewed CSV, and only if they are still orphaned.
+#
+# Review and Delete run only when "execute" is ticked; the weekly schedule uses the defaults, so it
+# only scans. The circuit breaker in the script (maxOrphanRatio in system.json) fails the Scan stage
+# when an implausibly high share of assignments looks orphaned - usually a directory lookup problem,
+# not a mass of orphans.
+
+trigger: none
+pr: none
+
+schedules:
+  - cron: '0 6 * * 1'
+    displayName: Weekly scan of test
+    branches:
+      include: [main]
+    always: true
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    default: test
+    values: [dev, test, acc, prod]
+  - name: execute
+    displayName: Delete after review (otherwise only scan)
+    type: boolean
+    default: false
+  - name: reviewers
+    displayName: Who reviews the report (email addresses or groups)
+    type: string
+    default: '[shop]\Platform Team'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: serviceConnection
+    value: sc-shop-${{ parameters.environment }}
+  - name: report
+    value: orphans-${{ parameters.environment }}.csv
+
+stages:
+  - stage: Scan
+    jobs:
+      - job: Scan
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Find orphaned role assignments (dry run)
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: >-
+                ./scripts/Remove-OrphanedRoleAssignments.ps1 -Environment '${{ parameters.environment }}'
+                -ReportPath '$(Build.ArtifactStagingDirectory)/$(report)'
+
+          - publish: $(Build.ArtifactStagingDirectory)/$(report)
+            artifact: orphans
+            condition: succeededOrFailed()
+
+  - ${{ if parameters.execute }}:
+      - stage: Review
+        dependsOn: Scan
+        jobs:
+          - job: Review
+            pool: server
+            timeoutInMinutes: 4320
+            steps:
+              - task: ManualValidation@1
+                inputs:
+                  notifyUsers: ${{ parameters.reviewers }}
+                  approvers: ${{ parameters.reviewers }}
+                  allowApproversToApproveTheirOwnRuns: false
+                  instructions: >-
+                    Download the 'orphans' artifact and check every row with Status 'Orphaned'.
+                    Resume to delete exactly those assignments; reject to delete nothing.
+                  onTimeout: reject
+
+      - stage: Delete
+        dependsOn: Review
+        jobs:
+          - job: Delete
+            steps:
+              - checkout: self
+              - download: current
+                artifact: orphans
+
+              - task: AzureCLI@2
+                displayName: Delete the reviewed orphaned role assignments
+                inputs:
+                  azureSubscription: $(serviceConnection)
+                  scriptType: pscore
+                  scriptLocation: inlineScript
+                  inlineScript: >-
+                    ./scripts/Remove-OrphanedRoleAssignments.ps1 -Environment '${{ parameters.environment }}'
+                    -Execute -ApprovedReport '$(Pipeline.Workspace)/orphans/$(report)' -Confirm:$false

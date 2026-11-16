@@ -1,0 +1,48 @@
+{
+  "$schema": "../schemas/environments.schema.json",
+  "system": "shop",
+  "group": "acc",
+  "policy": {
+    "requireBranchControl": true,
+    "requireExclusiveLock": true
+  },
+  "security": {
+    "administrators": ["[shop]\\Release Administrators"],
+    "removeCreatorRole": true
+  },
+  "environments": [
+    {
+      "name": "shop - acc",
+      "description": "Acceptance: the last stop before production.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main", "refs/heads/release/*"],
+        "verifyBranchProtection": true
+      },
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Test Managers"],
+        "minRequiredApprovers": 1,
+        "instructions": "Approve when the acceptance test window allows a deployment.",
+        "timeoutMinutes": 4320
+      }
+    },
+    {
+      "name": "shop - acc - Data",
+      "description": "Acceptance databases.",
+      "exclusiveLock": { "enabled": true },
+      "branchControl": {
+        "enabled": true,
+        "allowedBranches": ["refs/heads/main", "refs/heads/release/*"],
+        "verifyBranchProtection": true
+      },
+      "approval": {
+        "enabled": true,
+        "approvers": ["[shop]\\Test Managers"],
+        "minRequiredApprovers": 1,
+        "timeoutMinutes": 4320
+      }
+    }
+  ]
+}
